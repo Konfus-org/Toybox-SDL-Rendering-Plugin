@@ -27,6 +27,39 @@
 *.lib
 
 # Executables
-*.exe
 *.out
 *.app
+
+# IDE
+.idea/
+.vs/
+
+# Solution Files
+*.vcxproj
+*.filters
+*.user
+*.sln
+packages/
+
+# Testing
+Testing/
+
+# Build
+Build/
+bin/
+obj/
+compileData.scor
+compileData.scor.gbl
+compileData.scor.t0000
+
+# Do not ignore my tools
+!Tools/**/*.dll
+!Tools/**/*.lib
+!Tools/**/*.pdb
+!Tools/**/*.exe
+
+# Do not ignore 3rd party dlls, libs, pdbs, and exes
+!Dependencies/**/*.dll
+!Dependencies/**/*.lib
+!Dependencies/**/*.pdb
+!Dependencies/**/*.exe
