@@ -7,10 +7,19 @@ namespace SDLRendering
 {
     void SDLRendererFactory::OnLoad()
     {
+        // Do nothing...
     }
 
     void SDLRendererFactory::OnUnload()
     {
+        // Do nothing...
+    }
+
+    std::shared_ptr<Tbx::IRenderer> SDLRendererFactory::Create(std::shared_ptr<Tbx::IRenderSurface> surface)
+    {
+        auto renderer = std::shared_ptr<Tbx::IRenderer>(New(), [this](Tbx::IRenderer* renderer) { Delete(renderer); });
+        renderer->Initialize(surface);
+        return renderer;
     }
 
     Tbx::IRenderer* SDLRendererFactory::New()
