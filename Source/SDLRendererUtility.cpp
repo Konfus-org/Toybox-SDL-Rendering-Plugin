@@ -5,6 +5,8 @@
 
 namespace SDLRendering
 {
+    static const SDLCachedTexture _emptyTexture;
+
     SDLCachedTexture::SDLCachedTexture()
     {
         _texture = nullptr;
@@ -36,7 +38,7 @@ namespace SDLRendering
         _cachedTextures.clear();
     }
 
-    SDLCachedTexture SDLCachedTextureManager::Add(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, const Tbx::Texture& texture)
+    void SDLCachedTextureManager::Add(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, const Tbx::Texture& texture)
     {
         const std::string& texturePath = texture.GetPath();
 
@@ -106,11 +108,9 @@ namespace SDLRendering
 
             _cachedTextures.insert(std::make_pair(texturePath, cachedTexture));
         }
-
-        return _cachedTextures.find(texturePath)->second;
     }
 
-    SDLCachedTexture SDLCachedTextureManager::Get(const Tbx::Texture& texture)
+    const SDLCachedTexture& SDLCachedTextureManager::Get(const Tbx::Texture& texture)
     {
         const std::string& texturePath = texture.GetPath();
         std::map<const std::string, SDLCachedTexture>::iterator i = _cachedTextures.find(texturePath);
@@ -120,7 +120,7 @@ namespace SDLRendering
         }
         else
         {
-            return SDLCachedTexture();
+            return _emptyTexture;
         }
     }
 
@@ -148,7 +148,19 @@ namespace SDLRendering
         _cachedShaders.clear();
     }
 
-    SDLCachedShader SDLCachedShaderManager::AddVertexShader(SDL_GPUDevice* device, const Tbx::Shader& shader)
+    const SDLCachedShader& SDLCachedShaderManager::GetVert(const Tbx::Shader& shader)
+    {
+        const std::string& shaderPath = shader.GetVertexSource();
+        return _cachedShaders.find(shaderPath)->second;
+    }
+
+    const SDLCachedShader& SDLCachedShaderManager::GetFrag(const Tbx::Shader& shader)
+    {
+        const std::string& shaderPath = shader.GetFragmentSource();
+        return _cachedShaders.find(shaderPath)->second;
+    }
+
+    void SDLCachedShaderManager::AddVert(SDL_GPUDevice* device, const Tbx::Shader& shader)
     {
         const std::string& shaderPath = shader.GetVertexSource();
 
@@ -208,11 +220,9 @@ namespace SDLRendering
 
             _cachedShaders.insert(std::make_pair(shaderPath, cachedShader));
         }
-
-        return _cachedShaders.find(shaderPath)->second;
     }
 
-    SDLCachedShader SDLCachedShaderManager::AddFragmentShader(SDL_GPUDevice* device, const Tbx::Shader& shader)
+    void SDLCachedShaderManager::AddFrag(SDL_GPUDevice* device, const Tbx::Shader& shader)
     {
         const std::string& shaderPath = shader.GetFragmentSource();
 
@@ -267,8 +277,6 @@ namespace SDLRendering
 
             _cachedShaders.insert(std::make_pair(shaderPath, cachedShader));
         }
-
-        return _cachedShaders.find(shaderPath)->second;
     }
 
     void SDLCreateVertexAttributes(std::vector<SDL_GPUVertexAttribute>& vertexAttributes, const Tbx::BufferLayout& bufferLayout)

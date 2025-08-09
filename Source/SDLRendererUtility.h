@@ -22,8 +22,9 @@ namespace SDLRendering
         std::map<const std::string, SDLCachedTexture> _cachedTextures;
 
         void Release(SDL_GPUDevice* device);
-        SDLCachedTexture Add(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, const Tbx::Texture& texture);
-        SDLCachedTexture Get(const Tbx::Texture& texture);
+
+        void Add(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, const Tbx::Texture& texture);
+        const SDLCachedTexture& Get(const Tbx::Texture& texture);
     };
 
     struct SDLCachedShader
@@ -39,8 +40,12 @@ namespace SDLRendering
         std::map<const std::string, SDLCachedShader> _cachedShaders;
 
         void Release(SDL_GPUDevice* device);
-        SDLCachedShader AddVertexShader(SDL_GPUDevice* device, const Tbx::Shader& shader);
-        SDLCachedShader AddFragmentShader(SDL_GPUDevice* device, const Tbx::Shader& shader);
+
+        const SDLCachedShader& GetVert(const Tbx::Shader& shader);
+        const SDLCachedShader& GetFrag(const Tbx::Shader& shader);
+
+        void AddVert(SDL_GPUDevice* device, const Tbx::Shader& shader);
+        void AddFrag(SDL_GPUDevice* device, const Tbx::Shader& shader);
     };
 
     void SDLCreateVertexAttributes(std::vector<SDL_GPUVertexAttribute>& vertexAttributes, const Tbx::BufferLayout& bufferLayout);

@@ -1,5 +1,5 @@
 #pragma once
-#include <Tbx/Plugin API/RegisterPlugin.h>
+#include <Tbx/PluginAPI/RegisterPlugin.h>
 #include <Tbx/Events/RenderEvents.h>
 
 namespace SDLRendering

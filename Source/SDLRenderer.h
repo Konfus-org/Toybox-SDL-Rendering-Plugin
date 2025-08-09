@@ -14,6 +14,7 @@ namespace SDLRendering
         ~SDLRenderer();
 
         void Initialize(const std::shared_ptr<Tbx::IRenderSurface>& surface) override;
+        void CheckForErrors();
         void Shutdown();
 
         Tbx::GraphicsDevice GetGraphicsDevice() override;
@@ -34,6 +35,23 @@ namespace SDLRendering
         void Clear(const Tbx::Color& color) override;
         void Draw(const Tbx::FrameBuffer& buffer) override;
 
+        void DrawMesh(const Tbx::DrawCommand& cmd, SDL_Window* window);
+
+        void UploadShaderData(const Tbx::DrawCommand& cmd);
+
+        void SetMaterial(const Tbx::DrawCommand& cmd);
+
+        void CompileMaterial(const Tbx::DrawCommand& cmd);
+
+
+        bool TryBeginDraw(SDL_Window* window);
+        void BeginRenderPass();
+        void EndDraw();
+
+        void SubmitCommandBuffer();
+
+        void EndRenderPass();
+
     private:
         std::shared_ptr<SDL_GPUDevice> _device = nullptr;
         std::shared_ptr<Tbx::IRenderSurface> _surface = nullptr;
@@ -49,10 +67,11 @@ namespace SDLRendering
 
         bool _vsyncEnabled = false;
 
-        Tbx::Material _material;
+        Tbx::Material _currentMaterial;
         std::vector<Tbx::ShaderData> _shaderDatas;
         SDLCachedTextureManager _cachedTextureManager;
         SDLCachedShaderManager _cachedShaderManager;
+        SDL_GPUColorTargetInfo _currColorTarget;
     };
 }
 
