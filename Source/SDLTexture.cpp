@@ -90,7 +90,7 @@ namespace SDLRendering
             return nullptr;
         }
 
-        SDL_GPUTextureCreateInfo info{};
+        SDL_GPUTextureCreateInfo info = {};
         info.type = SDL_GPU_TEXTURETYPE_2D;
         info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
         info.width = textureWidth;
