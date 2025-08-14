@@ -392,7 +392,7 @@ namespace SDLRendering
 
         // bind the textures to the fragment shader
         const std::vector<Tbx::Texture>& textures = _currentMaterial.GetTextures();
-        for (size_t i = 0; i<textures.size(); i++)
+        for (size_t i = 0; i < textures.size(); i++)
         {
             const Tbx::Texture& texture = textures[i];
             SDLCachedTexture cachedTexture = _cachedTextureManager.Get(texture);
@@ -401,7 +401,12 @@ namespace SDLRendering
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = {};
                 textureSamplerBinding.texture = cachedTexture.Texture;
                 textureSamplerBinding.sampler = cachedTexture.Sampler;
-                SDL_BindGPUFragmentSamplers(_currRenderPass, 0, &textureSamplerBinding, 1);
+                // Use a unique sampler slot for each texture
+                SDL_BindGPUFragmentSamplers(
+                    _currRenderPass,
+                    static_cast<Uint32>(i),
+                    &textureSamplerBinding,
+                    1);
             }
         }
 
