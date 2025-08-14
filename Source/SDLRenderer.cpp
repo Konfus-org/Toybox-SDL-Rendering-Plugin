@@ -41,7 +41,7 @@ namespace SDLRendering
 
     static SDL_AssertState SDLCALL TbxAssertHandler(const SDL_AssertData* data, void* userdata)
     {
-        TBX_ASSERT(false, "[SDL ASSERT] {} ({}:{}) — {}", data->condition, data->filename, data->linenum, data->function);
+        TBX_ASSERT(false, "[SDL ASSERT] {} ({}:{}) â€” {}", data->condition, data->filename, data->linenum, data->function);
         return SDL_ASSERTION_IGNORE;
     }
 
@@ -98,6 +98,8 @@ namespace SDLRendering
 
     void SDLRenderer::Shutdown()
     {
+        Flush();
+
         _cachedTextureManager.Release(_device.get());
         _cachedShaderManager.Release(_device.get());
         _device.reset();
@@ -155,6 +157,11 @@ namespace SDLRendering
     {
         EndRenderPass();
         SubmitCommandBuffer();
+        if (_currSwapchainTexture)
+        {
+            SDL_ReleaseGPUTexture(_device.get(), _currSwapchainTexture);
+            _currSwapchainTexture = nullptr;
+        }
     }
 
     void SDLRenderer::Clear(const Tbx::Color& color)
