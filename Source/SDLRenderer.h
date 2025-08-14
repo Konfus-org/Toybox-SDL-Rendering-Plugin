@@ -1,6 +1,7 @@
 #pragma once
+#include "SDLTexture.h"
+#include "SDLShader.h"
 #include <SDL3/SDL.h>
-#include "SDLRendererUtility.h"
 #include <Tbx/Graphics/IRenderer.h>
 #include <Tbx/Graphics/Material.h>
 #include <Tbx/Graphics/Mesh.h>

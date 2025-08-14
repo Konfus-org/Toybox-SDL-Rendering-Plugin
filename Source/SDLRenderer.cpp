@@ -23,7 +23,7 @@ namespace SDLRendering
         bool debug_mode = false;
 #endif
         // create a device for either VULKAN, METAL, or DX12 with debugging enabled and choose the best driver
-        _device = std::shared_ptr<SDL_GPUDevice>(SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXBC, debug_mode, NULL), [](SDL_GPUDevice* deviceToDelete)
+        _device = std::shared_ptr<SDL_GPUDevice>(SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXBC, debug_mode, nullptr), [](SDL_GPUDevice* deviceToDelete)
         {
             SDL_DestroyGPUDevice(deviceToDelete);
         });
@@ -194,7 +194,7 @@ namespace SDLRendering
 
     void SDLRenderer::BeginRenderPass()
     {
-        _currRenderPass = SDL_BeginGPURenderPass(_currCommandBuffer, &_currColorTarget, 1, NULL);
+        _currRenderPass = SDL_BeginGPURenderPass(_currCommandBuffer, &_currColorTarget, 1, nullptr);
     }
 
     void SDLRenderer::EndRenderPass()
@@ -225,9 +225,10 @@ namespace SDLRendering
         _currentMaterial = material;
 
         // Upload, set, and compile shaders (if not already)
-        const Tbx::Shader shader = _currentMaterial.GetShader();
-        _cachedShaderManager.AddVert(_device.get(), shader);
-        _cachedShaderManager.AddFrag(_device.get(), shader);
+        const Tbx::Shader& vertShader = _currentMaterial.GetVertexShader();
+        const Tbx::Shader& fragShader = _currentMaterial.GetFragmentShader();
+        _cachedShaderManager.AddVert(_device.get(), vertShader);
+        _cachedShaderManager.AddFrag(_device.get(), fragShader);
 
         // Upload textures (if not already)
         const std::vector<Tbx::Texture>& textures = _currentMaterial.GetTextures();
@@ -253,9 +254,6 @@ namespace SDLRendering
 
     void SDLRenderer::DrawMesh(const Tbx::DrawCommand& cmd, SDL_Window* window)
     {
-        // Get all required data for rendering...
-        const Tbx::Shader shader = _currentMaterial.GetShader();
-        const std::vector<Tbx::Texture>& textures = _currentMaterial.GetTextures();
         const auto& mesh = std::any_cast<const Tbx::Mesh&>(cmd.GetPayload());
         const Tbx::VertexBuffer& meshVertexBuffer = mesh.GetVertexBuffer();
         const Tbx::BufferLayout& meshBufferLayout = meshVertexBuffer.GetLayout();
@@ -283,8 +281,8 @@ namespace SDLRendering
 
         // create the graphics pipeline
         SDL_GPUGraphicsPipelineCreateInfo graphicsPipelineInfo = {};
-        graphicsPipelineInfo.vertex_shader = _cachedShaderManager.GetVert(shader)._shader;
-        graphicsPipelineInfo.fragment_shader = _cachedShaderManager.GetFrag(shader)._shader;
+        graphicsPipelineInfo.vertex_shader = _cachedShaderManager.GetVert(_currentMaterial.GetVertexShader()).Shader;
+        graphicsPipelineInfo.fragment_shader = _cachedShaderManager.GetFrag(_currentMaterial.GetFragmentShader()).Shader;
         graphicsPipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         graphicsPipelineInfo.vertex_input_state.num_vertex_attributes = (Uint32)vertexAttributes.size();
         graphicsPipelineInfo.vertex_input_state.vertex_attributes = &vertexAttributes[0];
@@ -343,15 +341,16 @@ namespace SDLRendering
         }
 
         // bind the textures to the fragment shader
+        const std::vector<Tbx::Texture>& textures = _currentMaterial.GetTextures();
         for (size_t i = 0; i<textures.size(); i++)
         {
             const Tbx::Texture& texture = textures[i];
             SDLCachedTexture cachedTexture = _cachedTextureManager.Get(texture);
-            if (cachedTexture._sampler != nullptr)
+            if (cachedTexture.Sampler != nullptr)
             {
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = {};
-                textureSamplerBinding.texture = cachedTexture._texture;
-                textureSamplerBinding.sampler = cachedTexture._sampler;
+                textureSamplerBinding.texture = cachedTexture.Texture;
+                textureSamplerBinding.sampler = cachedTexture.Sampler;
                 SDL_BindGPUFragmentSamplers(_currRenderPass, 0, &textureSamplerBinding, 1);
             }
         }
