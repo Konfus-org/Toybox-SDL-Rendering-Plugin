@@ -46,72 +46,22 @@ namespace SDLRendering
             Tbx::TextureFilter textureFilter = texture.GetFilter();
             Tbx::TextureWrap textureWrap = texture.GetWrap();
 
-            SDLCachedTexture cachedTexture;
+            auto* surface = SDLMakeSurface(texture);
+            if (surface != nullptr)
+            {
+                SDLCachedTexture cachedTexture = {};
+                cachedTexture.Texture = SDLCreateTexture(surface, device);
+                cachedTexture.Sampler = SDLMakeSampler(texture, device);
+                _cachedTextures[texture.GetId()] = cachedTexture;
 
-            // create the texture
-            SDL_Surface* surface = SDL_CreateSurfaceFrom(
-                texture.GetWidth(), texture.GetHeight(), SDL_PIXELFORMAT_ABGR8888, texture.GetPixels().get(), texture.GetWidth() * texture.GetChannels());
-            if (!surface)
+                SDLUploadTexture(cachedTexture.Texture, surface->pitch * surface->h, surface->pixels, surface->w, surface->h, device, commandBuffer);
+                SDL_DestroySurface(surface);
+            }
+            else
             {
                 TBX_ASSERT(false, "Failed to create SDL_Surface: {}", SDL_GetError());
                 return;
             }
-
-            if (surface != nullptr)
-            {
-                Uint32 textureWidth = static_cast<Uint32>(surface->w);
-                Uint32 textureHeight = static_cast<Uint32>(surface->h);
-                Uint32 textureSize = textureWidth * textureHeight * texture.GetChannels();
-                const void* textureData = surface->pixels;
-
-                SDL_GPUTextureCreateInfo textureCreateInfo = {};
-                textureCreateInfo.type = SDL_GPU_TEXTURETYPE_2D;
-                textureCreateInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-                textureCreateInfo.width = textureWidth;
-                textureCreateInfo.height = textureHeight;
-                textureCreateInfo.layer_count_or_depth = 1;
-                textureCreateInfo.num_levels = 1;
-                textureCreateInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-                cachedTexture.Texture = SDLCreateTexture(device, textureCreateInfo);
-
-                SDLUploadTexture(device, commandBuffer, cachedTexture.Texture, textureSize, textureData, textureWidth, textureHeight);
-            }
-
-            // create the sampler
-            SDL_GPUSamplerCreateInfo samplerCreateInfo = {};
-            switch (textureFilter)
-            {
-                case Tbx::TextureFilter::Nearest:
-                    samplerCreateInfo.min_filter = SDL_GPU_FILTER_NEAREST;
-                    samplerCreateInfo.mag_filter = SDL_GPU_FILTER_NEAREST;
-                    break;
-                case Tbx::TextureFilter::Linear:
-                    samplerCreateInfo.min_filter = SDL_GPU_FILTER_LINEAR;
-                    samplerCreateInfo.mag_filter = SDL_GPU_FILTER_LINEAR;
-                    break;
-            }
-            samplerCreateInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
-            switch (textureWrap)
-            {
-                case Tbx::TextureWrap::ClampToEdge:
-                    samplerCreateInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-                    samplerCreateInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-                    samplerCreateInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-                    break;
-                case Tbx::TextureWrap::MirroredRepeat:
-                    samplerCreateInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT;
-                    samplerCreateInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT;
-                    samplerCreateInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT;
-                    break;
-                case Tbx::TextureWrap::Repeat:
-                    samplerCreateInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-                    samplerCreateInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-                    samplerCreateInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
-                    break;
-            }
-            cachedTexture.Sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
-
-            _cachedTextures.insert(std::make_pair(texture.GetId(), cachedTexture));
         }
     }
 
@@ -128,13 +78,31 @@ namespace SDLRendering
         }
     }
 
-    SDL_GPUTexture* SDLCreateTexture(SDL_GPUDevice* device, const SDL_GPUTextureCreateInfo& textureCreateInfo)
+    SDL_GPUTexture* SDLCreateTexture(const SDL_Surface* surface, SDL_GPUDevice* device)
     {
-        SDL_GPUTexture* texture = SDL_CreateGPUTexture(device, &textureCreateInfo);
-        return texture;
+        const Uint32 textureWidth = static_cast<Uint32>(surface->w);
+        const Uint32 textureHeight = static_cast<Uint32>(surface->h);
+
+        // After normalization we only expect RGBA32 here
+        if (surface->format != SDL_PIXELFORMAT_RGBA32)
+        {
+            TBX_ASSERT(false, "Unexpected surface format; expected RGBA32 after conversion.");
+            return nullptr;
+        }
+
+        SDL_GPUTextureCreateInfo info{};
+        info.type = SDL_GPU_TEXTURETYPE_2D;
+        info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        info.width = textureWidth;
+        info.height = textureHeight;
+        info.layer_count_or_depth = 1;
+        info.num_levels = 1;
+        info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+
+        return SDL_CreateGPUTexture(device, &info);
     }
 
-    void SDLUploadTexture(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, SDL_GPUTexture* texture, Uint32 textureSize, const void* textureData, Uint32 textureWidth, Uint32 textureHeight)
+    void SDLUploadTexture(SDL_GPUTexture* texture, Uint32 textureSize, const void* textureData, Uint32 textureWidth, Uint32 textureHeight, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer)
     {
         SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo = {};
         transferBufferCreateInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
@@ -144,8 +112,6 @@ namespace SDLRendering
         void* targetData = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
         SDL_memcpy(targetData, textureData, textureSize);
         SDL_UnmapGPUTransferBuffer(device, transferBuffer);
-
-        SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
 
         SDL_GPUTextureTransferInfo textureTransferInfo = {};
         textureTransferInfo.transfer_buffer = transferBuffer;
@@ -157,25 +123,96 @@ namespace SDLRendering
         textureRegion.h = textureHeight;
         textureRegion.d = 1;
 
+        SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
         SDL_UploadToGPUTexture(copyPass, &textureTransferInfo, &textureRegion, false);
         SDL_EndGPUCopyPass(copyPass);
         SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
     }
-
-    SDL_Surface* SDLLoadSurface(const char* surfacePath, SDL_PixelFormat pixelFormat)
+    
+    SDL_Surface* SDLMakeSurface(const Tbx::Texture& texture)
     {
-        SDL_Surface* surface = SDL_LoadBMP(surfacePath);
+        auto width = texture.GetWidth();
+        auto height = texture.GetHeight();
+        auto pixelData = (void*)texture.GetPixels().data();
+        auto pitch = texture.GetChannels() * width;
+
+        // Convert tbx format to sdl pixel format
+        SDL_PixelFormat format;
+        switch (texture.GetFormat())
+        {
+            case Tbx::TextureFormat::RGB:
+                format = SDL_PIXELFORMAT_RGB24;
+                break;
+            case Tbx::TextureFormat::RGBA:
+                format = SDL_PIXELFORMAT_RGBA32;
+                break;
+            default:
+                TBX_ASSERT(false, "Unsupported texture format!");
+                return nullptr;
+        }
+
+        // Create surface from texture data
+        auto* surface = SDL_CreateSurfaceFrom(width, height, format, pixelData, pitch);
         if (surface == nullptr)
         {
             TBX_ASSERT("Failed to load BMP: {}", SDL_GetError());
             return nullptr;
         }
-        if (surface->format != pixelFormat)
+
+        // Normalize to RGBA32 so upload format and data agree
+        if (surface->format != SDL_PIXELFORMAT_RGBA32)
         {
-            SDL_Surface* newSurface = SDL_ConvertSurface(surface, pixelFormat);
+            SDL_Surface* converted = SDL_ConvertSurface(surface, SDL_PIXELFORMAT_RGBA32);
             SDL_DestroySurface(surface);
-            surface = newSurface;
+            surface = converted;
+            if (!surface)
+            {
+                TBX_ASSERT(false, "Failed to convert surface: {}", SDL_GetError());
+                return nullptr;
+            }
         }
+
         return surface;
+    }
+
+    SDL_GPUSampler* SDLMakeSampler(const Tbx::Texture& texture, SDL_GPUDevice* device)
+    {
+        Tbx::TextureFilter textureFilter = texture.GetFilter();
+        Tbx::TextureWrap textureWrap = texture.GetWrap();
+
+        SDL_GPUSamplerCreateInfo samplerCreateInfo = {};
+        switch (textureFilter)
+        {
+            case Tbx::TextureFilter::Nearest:
+                samplerCreateInfo.min_filter = SDL_GPU_FILTER_NEAREST;
+                samplerCreateInfo.mag_filter = SDL_GPU_FILTER_NEAREST;
+                break;
+            case Tbx::TextureFilter::Linear:
+                samplerCreateInfo.min_filter = SDL_GPU_FILTER_LINEAR;
+                samplerCreateInfo.mag_filter = SDL_GPU_FILTER_LINEAR;
+                break;
+        }
+
+        samplerCreateInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+        switch (textureWrap)
+        {
+            case Tbx::TextureWrap::ClampToEdge:
+                samplerCreateInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+                samplerCreateInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+                samplerCreateInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+                break;
+            case Tbx::TextureWrap::MirroredRepeat:
+                samplerCreateInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT;
+                samplerCreateInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT;
+                samplerCreateInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT;
+                break;
+            case Tbx::TextureWrap::Repeat:
+                samplerCreateInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+                samplerCreateInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+                samplerCreateInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+                break;
+        }
+        
+        return SDL_CreateGPUSampler(device, &samplerCreateInfo);
     }
 }

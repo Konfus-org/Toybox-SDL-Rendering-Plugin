@@ -15,7 +15,6 @@ namespace SDLRendering
         ~SDLRenderer();
 
         void Initialize(const std::shared_ptr<Tbx::IRenderSurface>& surface) override;
-        void CheckForErrors();
         void Shutdown();
 
         Tbx::GraphicsDevice GetGraphicsDevice() override;

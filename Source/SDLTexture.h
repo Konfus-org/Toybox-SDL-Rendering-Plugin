@@ -28,9 +28,11 @@ namespace SDLRendering
         std::unordered_map<Tbx::Uid, SDLCachedTexture> _cachedTextures;
     };
 
-    SDL_GPUTexture* SDLCreateTexture(SDL_GPUDevice* device, const SDL_GPUTextureCreateInfo& textureCreateInfo);
+    SDL_Surface* SDLMakeSurface(const Tbx::Texture& texture);
 
-    void SDLUploadTexture(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, SDL_GPUTexture* texture, Uint32 textureSize, const void* textureData, Uint32 textureWidth, Uint32 textureHeight);
+    SDL_GPUSampler* SDLMakeSampler(const Tbx::Texture& texture, SDL_GPUDevice* device);
 
-    SDL_Surface* SDLLoadSurface(const char* surfacePath, SDL_PixelFormat pixelFormat);
+    SDL_GPUTexture* SDLCreateTexture(const SDL_Surface* surface, SDL_GPUDevice* device);
+
+    void SDLUploadTexture(SDL_GPUTexture* texture, Uint32 textureSize, const void* textureData, Uint32 textureWidth, Uint32 textureHeight, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer);
 }

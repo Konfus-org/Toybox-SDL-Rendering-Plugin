@@ -6,6 +6,63 @@
 
 namespace SDLRendering
 {
+    //////////////// LOGGING ////////////////
+
+    static void SDLCALL TbxLogHandler(void* userdata,
+        int category,
+        SDL_LogPriority priority,
+        const char* message)
+    {
+        switch (priority)
+        {
+            case SDL_LOG_PRIORITY_VERBOSE:
+                TBX_TRACE_VERBOSE("[SDL][cat={}] {}", category, message);
+                break;
+            case SDL_LOG_PRIORITY_DEBUG:
+                TBX_TRACE_DEBUG("[SDL][cat={}] {}", category, message);
+                break;
+            case SDL_LOG_PRIORITY_INFO:
+                TBX_TRACE_INFO("[SDL][cat={}] {}", category, message);
+                break;
+            case SDL_LOG_PRIORITY_WARN:
+                TBX_TRACE_WARN("[SDL][cat={}] {}", category, message);
+                break;
+            case SDL_LOG_PRIORITY_ERROR:
+                TBX_ASSERT(false, "[SDL][cat={}] {}", category, message);
+                break;
+            case SDL_LOG_PRIORITY_CRITICAL:
+                TBX_ASSERT(false, "[SDL][cat={}] {}", category, message);
+                break;
+            default:
+                TBX_TRACE_ERROR("[SDL][cat={}] {}", category, message);
+                break;
+        }
+    }
+
+    static SDL_AssertState SDLCALL TbxAssertHandler(const SDL_AssertData* data, void* userdata)
+    {
+        TBX_ASSERT(false, "[SDL ASSERT] {} ({}:{}) — {}", data->condition, data->filename, data->linenum, data->function);
+        return SDL_ASSERTION_IGNORE;
+    }
+
+    static void InstallSdlLogger()
+    {
+#ifdef TBX_DEBUG
+        SDL_SetLogPriorities(SDL_LOG_PRIORITY_VERBOSE);
+#else
+        SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
+#endif
+
+        SDL_SetLogOutputFunction(TbxLogHandler, nullptr);
+    }
+
+    static void InstallSdlAssertHandler()
+    {
+        SDL_SetAssertionHandler(TbxAssertHandler, nullptr);
+    }
+
+    //////////////// RENDERER ////////////////
+
     SDLRenderer::~SDLRenderer()
     {
         Shutdown();
@@ -36,14 +93,7 @@ namespace SDLRendering
         _resolution = { w, h };
         _viewport = { { 0, 0 }, { w, h } };
 
-        // Check for errors
-        CheckForErrors();
-    }
-
-    void SDLRenderer::CheckForErrors()
-    {
-        std::string err = SDL_GetError();
-        //TBX_ASSERT(err.empty(), "An error from SDL has occured: {}", err);
+        InstallSdlLogger();
     }
 
     void SDLRenderer::Shutdown()
@@ -114,6 +164,8 @@ namespace SDLRendering
         _currColorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
         _currColorTarget.store_op = SDL_GPU_STOREOP_STORE;
         _currColorTarget.texture = _currSwapchainTexture;
+        BeginRenderPass();
+        EndRenderPass();
     }
 
     void SDLRenderer::Draw(const Tbx::FrameBuffer& buffer)
@@ -181,7 +233,6 @@ namespace SDLRendering
         
         // Clear screen
         Clear(Tbx::App::GetInstance()->GetGraphicsSettings().ClearColor);
-        BeginRenderPass();
 
         return true;
     }
@@ -189,7 +240,6 @@ namespace SDLRendering
     void SDLRenderer::EndDraw()
     {
         Flush();
-        CheckForErrors();
     }
 
     void SDLRenderer::BeginRenderPass()
@@ -330,13 +380,13 @@ namespace SDLRendering
         for (size_t i = 0; i<_shaderDatas.size(); i++)
         {
             const Tbx::ShaderData& shaderData = _shaderDatas[i];
-            if (shaderData._isFragment)
+            if (shaderData.IsFragment)
             {
-                SDL_PushGPUFragmentUniformData(_currCommandBuffer, shaderData._uniformSlot, shaderData._uniformData, shaderData._uniformSize);
+                SDL_PushGPUFragmentUniformData(_currCommandBuffer, shaderData.UniformSlot, shaderData.UniformData, shaderData.UniformSize);
             }
             else
             {
-                SDL_PushGPUVertexUniformData(_currCommandBuffer, shaderData._uniformSlot, shaderData._uniformData, shaderData._uniformSize);
+                SDL_PushGPUVertexUniformData(_currCommandBuffer, shaderData.UniformSlot, shaderData.UniformData, shaderData.UniformSize);
             }
         }
 
@@ -346,7 +396,7 @@ namespace SDLRendering
         {
             const Tbx::Texture& texture = textures[i];
             SDLCachedTexture cachedTexture = _cachedTextureManager.Get(texture);
-            if (cachedTexture.Sampler != nullptr)
+            if (cachedTexture.Sampler != nullptr && cachedTexture.Texture != nullptr)
             {
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = {};
                 textureSamplerBinding.texture = cachedTexture.Texture;

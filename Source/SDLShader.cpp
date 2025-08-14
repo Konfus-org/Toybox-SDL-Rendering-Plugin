@@ -50,10 +50,6 @@ namespace SDLRendering
         const auto i = _cachedShaders.find(shader.GetId());
         if (i == _cachedShaders.end())
         {
-            SDLCachedShader cachedShader;
-            SDL_GPUShader* vertexShader = nullptr;
-
-            SDL_ShaderCross_SPIRV_Info vertexInfo = {};
             SDL_ShaderCross_HLSL_Info info = {};
             info.source = shader.GetSource().c_str();
             info.entrypoint = "main";
@@ -65,8 +61,9 @@ namespace SDLRendering
 
             size_t size = 0;
             void* data = SDL_ShaderCross_CompileSPIRVFromHLSL(&info, &size);
-            TBX_ASSERT(data != nullptr && size != 0, "Failed to compile vertex shader");
+            TBX_ASSERT(data != nullptr && size != 0, "Failed to compile vertex shader: {}", SDL_GetError());
 
+            SDL_ShaderCross_SPIRV_Info vertexInfo = {};
             vertexInfo.bytecode = (Uint8*)data;
             vertexInfo.bytecode_size = size;
             vertexInfo.entrypoint = "main";
@@ -74,7 +71,6 @@ namespace SDLRendering
             vertexInfo.enable_debug = true;
 
             SDL_ShaderCross_GraphicsShaderMetadata vertexMetadata = {};
-
             vertexMetadata.num_uniform_buffers = 1;
             vertexMetadata.num_samplers = 0;
             vertexMetadata.num_storage_textures = 0;
@@ -84,10 +80,13 @@ namespace SDLRendering
             vertexMetadata.inputs = nullptr;
             vertexMetadata.outputs = nullptr;
 
-            vertexShader = SDL_ShaderCross_CompileGraphicsShaderFromSPIRV(device, &vertexInfo, &vertexMetadata, 0);
+            SDLCachedShader cachedShader = {};
+            SDL_GPUShader* vertexShader = SDL_ShaderCross_CompileGraphicsShaderFromSPIRV(device, &vertexInfo, &vertexMetadata, 0);
             cachedShader.Shader = vertexShader;
 
             _cachedShaders[shader.GetId()] = cachedShader;
+
+            SDL_free(data);
         }
     }
 
@@ -102,13 +101,8 @@ namespace SDLRendering
         const auto i = _cachedShaders.find(shader.GetId());
         if (i == _cachedShaders.end())
         {
-            SDLCachedShader cachedShader;
-            SDL_GPUShader* fragmentShader = nullptr;
-
-            SDL_ShaderCross_SPIRV_Info fragmentInfo = {};
-            
             SDL_ShaderCross_HLSL_Info info = {};
-            info.source = shader.GetFragmentSource().c_str();
+            info.source = shader.GetSource().c_str();
             info.entrypoint = "main";
             info.include_dir = nullptr;
             info.defines = nullptr;
@@ -118,10 +112,11 @@ namespace SDLRendering
 
             size_t size = 0;
             void* data = SDL_ShaderCross_CompileSPIRVFromHLSL(&info, &size);
-            TBX_ASSERT(data != nullptr && size != 0, "Failed to compile fragment shader");
+            TBX_ASSERT(data != nullptr && size != 0, "Failed to compile vertex shader: {}", SDL_GetError());
+
+            SDL_ShaderCross_SPIRV_Info fragmentInfo = {};
             fragmentInfo.bytecode = (Uint8*)data;
             fragmentInfo.bytecode_size = size;
-
             fragmentInfo.entrypoint = "main";
             fragmentInfo.shader_stage = SDL_SHADERCROSS_SHADERSTAGE_FRAGMENT;
             fragmentInfo.enable_debug = true;
@@ -132,10 +127,13 @@ namespace SDLRendering
             fragmentMetadata.num_storage_textures = 0;
             fragmentMetadata.num_uniform_buffers = 1;
 
-            fragmentShader = SDL_ShaderCross_CompileGraphicsShaderFromSPIRV(device, &fragmentInfo, &fragmentMetadata, 0);
+            SDLCachedShader cachedShader = {};
+            SDL_GPUShader* fragmentShader = SDL_ShaderCross_CompileGraphicsShaderFromSPIRV(device, &fragmentInfo, &fragmentMetadata, 0);
             cachedShader.Shader = fragmentShader;
 
             _cachedShaders[shader.GetId()] = cachedShader;
+
+            SDL_free(data);
         }
     }
 
