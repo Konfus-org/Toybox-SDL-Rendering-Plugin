@@ -5,40 +5,34 @@
 
 namespace SDLRendering
 {
-    static const SDLCachedTexture _emptyTexture;
-
-    SDLCachedTexture::SDLCachedTexture()
+    SDLCachedTexture::SDLCachedTexture(SDL_GPUTexture* texture, SDL_GPUSampler* sampler, SDL_GPUDevice* device)
     {
-        Texture = nullptr;
-        Sampler = nullptr;
+        Texture = texture;
+        Sampler = sampler;
+        Device = device;
     }
 
-    void SDLCachedTexture::Release(SDL_GPUDevice* device)
+    SDLCachedTexture::~SDLCachedTexture()
     {
         if (Texture != nullptr)
         {
-            SDL_ReleaseGPUTexture(device, Texture);
+            SDL_ReleaseGPUTexture(Device, Texture);
             Texture = nullptr;
         }
 
         if (Sampler != nullptr)
         {
-            SDL_ReleaseGPUSampler(device, Sampler);
+            SDL_ReleaseGPUSampler(Device, Sampler);
             Sampler = nullptr;
         }
     }
 
-    void SDLCachedTextureManager::Release(SDL_GPUDevice* device)
+    SDLTextureCache::~SDLTextureCache()
     {
-        for (auto i = _cachedTextures.begin(); i != _cachedTextures.end(); i++)
-        {
-            SDLCachedTexture& cachedTexture = i->second;
-            cachedTexture.Release(device);
-        }
-        _cachedTextures.clear();
+        Clear();
     }
 
-    void SDLCachedTextureManager::Add(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, const Tbx::Texture& texture)
+    void SDLTextureCache::Add(const Tbx::Texture& texture, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer)
     {
         const auto i = _cachedTextures.find(texture.GetId());
         if (i == _cachedTextures.end())
@@ -49,12 +43,10 @@ namespace SDLRendering
             auto* surface = SDLMakeSurface(texture);
             if (surface != nullptr)
             {
-                SDLCachedTexture cachedTexture = {};
-                cachedTexture.Texture = SDLCreateTexture(surface, device);
-                cachedTexture.Sampler = SDLMakeSampler(texture, device);
-                _cachedTextures[texture.GetId()] = cachedTexture;
-
-                SDLUploadTexture(cachedTexture.Texture, surface->pitch * surface->h, surface->pixels, surface->w, surface->h, device, commandBuffer);
+                _cachedTextures.emplace(
+                    std::piecewise_construct,
+                    std::forward_as_tuple(texture.GetId()),
+                    std::forward_as_tuple(SDLCreateTexture(surface, device, commandBuffer), SDLMakeSampler(texture, device), device));
                 SDL_DestroySurface(surface);
             }
             else
@@ -65,20 +57,17 @@ namespace SDLRendering
         }
     }
 
-    const SDLCachedTexture& SDLCachedTextureManager::Get(const Tbx::Uid& texture)
+    const SDLCachedTexture& SDLTextureCache::Get(const Tbx::Uid& texture)
     {
-        const auto i = _cachedTextures.find(texture);
-        if (i != _cachedTextures.end())
-        {
-            return i->second;
-        }
-        else
-        {
-            return _emptyTexture;
-        }
+        return _cachedTextures.find(texture)->second;
     }
 
-    SDL_GPUTexture* SDLCreateTexture(const SDL_Surface* surface, SDL_GPUDevice* device)
+    void SDLTextureCache::Clear()
+    {
+        _cachedTextures.clear();
+    }
+
+    SDL_GPUTexture* SDLCreateTexture(const SDL_Surface* surface, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer)
     {
         const Uint32 textureWidth = static_cast<Uint32>(surface->w);
         const Uint32 textureHeight = static_cast<Uint32>(surface->h);
@@ -90,6 +79,7 @@ namespace SDLRendering
             return nullptr;
         }
 
+        // Setup creation info
         SDL_GPUTextureCreateInfo info = {};
         info.type = SDL_GPU_TEXTURETYPE_2D;
         info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -99,7 +89,10 @@ namespace SDLRendering
         info.num_levels = 1;
         info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
 
-        return SDL_CreateGPUTexture(device, &info);
+        // Create and upload
+        auto* texture = SDL_CreateGPUTexture(device, &info);
+        SDLUploadTexture(texture, surface->pitch * surface->h, surface->pixels, surface->w, surface->h, device, commandBuffer);
+        return texture;
     }
 
     void SDLUploadTexture(SDL_GPUTexture* texture, Uint32 textureSize, const void* textureData, Uint32 textureWidth, Uint32 textureHeight, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer)

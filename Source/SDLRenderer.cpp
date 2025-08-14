@@ -79,7 +79,7 @@ namespace SDLRendering
 #else
         bool debug_mode = false;
 #endif
-        // create a device for either VULKAN, METAL, or DX12 with debugging enabled and choose the best driver
+        // create a device for either VULKAN, METAL, or DX12 and choose the best driver
         _device = std::shared_ptr<SDL_GPUDevice>(SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXBC, debug_mode, nullptr), [](SDL_GPUDevice* deviceToDelete)
         {
             SDL_DestroyGPUDevice(deviceToDelete);
@@ -100,8 +100,9 @@ namespace SDLRendering
     {
         Flush();
 
-        _cachedTextureManager.Release(_device.get());
-        _cachedShaderManager.Release(_device.get());
+        _shaderCache.Clear();
+        _textureCache.Clear();
+
         _device.reset();
     }
 
@@ -157,11 +158,6 @@ namespace SDLRendering
     {
         EndRenderPass();
         SubmitCommandBuffer();
-        if (_currSwapchainTexture)
-        {
-            SDL_ReleaseGPUTexture(_device.get(), _currSwapchainTexture);
-            _currSwapchainTexture = nullptr;
-        }
     }
 
     void SDLRenderer::Clear(const Tbx::Color& color)
@@ -246,7 +242,8 @@ namespace SDLRendering
 
     void SDLRenderer::EndDraw()
     {
-        Flush();
+        EndRenderPass();
+        SubmitCommandBuffer();
     }
 
     void SDLRenderer::BeginRenderPass()
@@ -278,21 +275,21 @@ namespace SDLRendering
         EndRenderPass();
 
         // Get the current material
-        auto material = std::any_cast<const Tbx::Material&>(cmd.GetPayload());
+        const auto& material = std::any_cast<const Tbx::Material&>(cmd.GetPayload());
         _currentMaterial = material;
 
         // Upload, set, and compile shaders (if not already)
-        const Tbx::Shader& vertShader = _currentMaterial.GetVertexShader();
-        const Tbx::Shader& fragShader = _currentMaterial.GetFragmentShader();
-        _cachedShaderManager.AddVert(_device.get(), vertShader);
-        _cachedShaderManager.AddFrag(_device.get(), fragShader);
+        const auto& vertShader = _currentMaterial.GetVertexShader();
+        const auto& fragShader = _currentMaterial.GetFragmentShader();
+        _shaderCache.Add(vertShader, _device.get());
+        _shaderCache.Add(fragShader, _device.get());
 
         // Upload textures (if not already)
         const std::vector<Tbx::Texture>& textures = _currentMaterial.GetTextures();
         for (size_t i = 0; i < textures.size(); i++)
         {
             const Tbx::Texture& texture = textures[i];
-            _cachedTextureManager.Add(_device.get(), _currCommandBuffer, texture);
+            _textureCache.Add(texture, _device.get(), _currCommandBuffer);
         }
     }
 
@@ -300,13 +297,13 @@ namespace SDLRendering
     {
         auto material = std::any_cast<const Tbx::Material&>(cmd.GetPayload());
         _currentMaterial = material;
-        _shaderDatas.clear();
+        _shaderUniforms.clear();
     }
 
     void SDLRenderer::UploadShaderData(const Tbx::DrawCommand& cmd)
     {
         const auto& data = std::any_cast<const Tbx::ShaderData&>(cmd.GetPayload());
-        _shaderDatas.push_back(data);
+        _shaderUniforms.push_back(data);
     }
 
     void SDLRenderer::DrawMesh(const Tbx::DrawCommand& cmd, SDL_Window* window)
@@ -316,30 +313,25 @@ namespace SDLRendering
         const Tbx::BufferLayout& meshBufferLayout = meshVertexBuffer.GetLayout();
 
         // get the vertices from the mesh
-        const std::vector<float>& vertices = meshVertexBuffer.GetVertices();
-        Tbx::uint32 verticesSize = static_cast<Uint32>(sizeof(float) * vertices.size());
+        const auto& vertices = meshVertexBuffer.GetVertices();
         const void* verticesPtr = &vertices[0];
+        const auto verticesSize = static_cast<Uint32>(sizeof(float) * vertices.size());
 
         // get the indices from the mesh
-        const std::vector<Tbx::uint32>& indices = mesh.GetIndices();
-        Tbx::uint32 indicesSize = static_cast<Uint32>(sizeof(Tbx::uint32) * indices.size());
-        Uint32 indexCount = static_cast<Uint32>(indices.size());
-        const void* pIndices = &indices[0];
-
-        std::vector<SDL_GPUVertexAttribute> vertexAttributes;
-        SDLCreateVertexAttributes(vertexAttributes, meshBufferLayout);
-
-        std::vector<SDL_GPUVertexBufferDescription> vertexBufferDesctiptions;
-        SDLCreateVertexBufferDescriptions(vertexBufferDesctiptions, meshBufferLayout);
-
-        SDL_GPUColorTargetDescription colorTargetDescriptions[1];
-        colorTargetDescriptions[0] = {};
-        colorTargetDescriptions[0].format = SDL_GetGPUSwapchainTextureFormat(_device.get(), window);
+        const auto& indices = mesh.GetIndices();
+        const void* indicesPtr = &indices[0];
+        const auto indicesSize = static_cast<Uint32>(sizeof(Tbx::uint32) * indices.size());
+        const auto indexCount = static_cast<Uint32>(indices.size());
 
         // create the graphics pipeline
+        std::vector<SDL_GPUVertexAttribute> vertexAttributes = SDLCreateVertexAttributes(meshBufferLayout);
+        std::vector<SDL_GPUVertexBufferDescription> vertexBufferDesctiptions = SDLCreateVertexBufferDescriptions(meshBufferLayout);
+        SDL_GPUColorTargetDescription colorTargetDescriptions[1];
         SDL_GPUGraphicsPipelineCreateInfo graphicsPipelineInfo = {};
-        graphicsPipelineInfo.vertex_shader = _cachedShaderManager.GetVert(_currentMaterial.GetVertexShader()).Shader;
-        graphicsPipelineInfo.fragment_shader = _cachedShaderManager.GetFrag(_currentMaterial.GetFragmentShader()).Shader;
+        colorTargetDescriptions[0] = {};
+        colorTargetDescriptions[0].format = SDL_GetGPUSwapchainTextureFormat(_device.get(), window);
+        graphicsPipelineInfo.vertex_shader = _shaderCache.Get(_currentMaterial.GetVertexShader()).Shader;
+        graphicsPipelineInfo.fragment_shader = _shaderCache.Get(_currentMaterial.GetFragmentShader()).Shader;
         graphicsPipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         graphicsPipelineInfo.vertex_input_state.num_vertex_attributes = (Uint32)vertexAttributes.size();
         graphicsPipelineInfo.vertex_input_state.vertex_attributes = &vertexAttributes[0];
@@ -354,15 +346,15 @@ namespace SDLRendering
         SDL_GPUBufferCreateInfo vertexBufferCreateInfo = {};
         vertexBufferCreateInfo.size = verticesSize;
         vertexBufferCreateInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
-        SDL_GPUBuffer* vertexBuffer = SDLCreateBuffer(_device.get(), vertexBufferCreateInfo);
-        SDLUploadBuffer(_device.get(), _currCommandBuffer, vertexBuffer, verticesSize, verticesPtr);
+        SDL_GPUBuffer* vertexBuffer = SDLCreateBuffer(vertexBufferCreateInfo, _device.get());
+        SDLUploadBuffer(vertexBuffer, verticesSize, verticesPtr, _device.get(), _currCommandBuffer);
 
         // create the index buffer and upload the indices
         SDL_GPUBufferCreateInfo indexBufferCreateInfo = {};
         indexBufferCreateInfo.size = indicesSize;
         indexBufferCreateInfo.usage = SDL_GPU_BUFFERUSAGE_INDEX;
-        SDL_GPUBuffer* indexBuffer = SDLCreateBuffer(_device.get(), indexBufferCreateInfo);
-        SDLUploadBuffer(_device.get(), _currCommandBuffer, indexBuffer, indicesSize, pIndices);
+        SDL_GPUBuffer* indexBuffer = SDLCreateBuffer(indexBufferCreateInfo, _device.get());
+        SDLUploadBuffer(indexBuffer, indicesSize, indicesPtr, _device.get(), _currCommandBuffer);
 
         // Start render pass for the mesh
         _currColorTarget.load_op = SDL_GPU_LOADOP_LOAD; // don't clear color target
@@ -384,9 +376,9 @@ namespace SDLRendering
         SDL_BindGPUIndexBuffer(_currRenderPass, indexBufferBindings, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
         // HACK: upload the uniform data to the shaders
-        for (size_t i = 0; i<_shaderDatas.size(); i++)
+        for (auto i = 0; i < _shaderUniforms.size(); i++)
         {
-            const Tbx::ShaderData& shaderData = _shaderDatas[i];
+            const auto& shaderData = _shaderUniforms[i];
             if (shaderData.IsFragment)
             {
                 SDL_PushGPUFragmentUniformData(_currCommandBuffer, shaderData.UniformSlot, shaderData.UniformData, shaderData.UniformSize);
@@ -398,22 +390,17 @@ namespace SDLRendering
         }
 
         // bind the textures to the fragment shader
-        const std::vector<Tbx::Texture>& textures = _currentMaterial.GetTextures();
+        const auto& textures = _currentMaterial.GetTextures();
         for (size_t i = 0; i < textures.size(); i++)
         {
-            const Tbx::Texture& texture = textures[i];
-            SDLCachedTexture cachedTexture = _cachedTextureManager.Get(texture);
+            const auto& texture = textures[i];
+            auto& cachedTexture = _textureCache.Get(texture);
             if (cachedTexture.Sampler != nullptr && cachedTexture.Texture != nullptr)
             {
                 SDL_GPUTextureSamplerBinding textureSamplerBinding = {};
                 textureSamplerBinding.texture = cachedTexture.Texture;
                 textureSamplerBinding.sampler = cachedTexture.Sampler;
-                // Use a unique sampler slot for each texture
-                SDL_BindGPUFragmentSamplers(
-                    _currRenderPass,
-                    static_cast<Uint32>(i),
-                    &textureSamplerBinding,
-                    1);
+                SDL_BindGPUFragmentSamplers(_currRenderPass, static_cast<Uint32>(i), &textureSamplerBinding, 1);
             }
         }
 

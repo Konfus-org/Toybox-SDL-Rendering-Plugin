@@ -5,149 +5,122 @@
 
 namespace SDLRendering
 {
-    SDLCachedShader::SDLCachedShader()
+    SDLCachedShader::SDLCachedShader(SDL_GPUShader* shader, SDL_GPUDevice* device)
     {
-        Shader = nullptr;
+        Shader = shader;
+        Device = device;
     }
 
-    void SDLCachedShader::Release(SDL_GPUDevice* device)
+    SDLCachedShader::~SDLCachedShader()
     {
         if (Shader != nullptr)
         {
-            SDL_ReleaseGPUShader(device, Shader);
+            SDL_ReleaseGPUShader(Device, Shader);
             Shader = nullptr;
         }
     }
 
-    void SDLCachedShaderManager::Release(SDL_GPUDevice* device)
+    SDLShaderCache::~SDLShaderCache()
     {
-        for (auto i = _cachedShaders.begin(); i != _cachedShaders.end(); i++)
+        Clear();
+    }
+
+    void SDLShaderCache::Add(const Tbx::Shader& shader, SDL_GPUDevice* device)
+    {
+        const auto i = _cachedShaders.find(shader.GetId());
+        if (i == _cachedShaders.end())
         {
-            SDLCachedShader& cachedShader = i->second;
-            cachedShader.Release(device);
+#ifdef TBX_DEBUG
+            auto debug = true;
+#else
+            auto debug = false;
+#endif
+            const auto entryPointFunc = "main";
+
+            SDL_ShaderCross_ShaderStage stage;
+            const auto& shaderType = shader.GetType();
+            if (shaderType == Tbx::ShaderType::Vertex)
+            {
+                stage = SDL_SHADERCROSS_SHADERSTAGE_VERTEX;
+            }
+            else if (shaderType == Tbx::ShaderType::Fragment)
+            {
+                stage = SDL_SHADERCROSS_SHADERSTAGE_FRAGMENT;
+            }
+            else
+            {
+                TBX_ASSERT(false, "Unsupported shader type: {}", (int)shaderType);
+                return;
+            }
+
+            SDL_ShaderCross_HLSL_Info info = {};
+            info.source = shader.GetSource().c_str();
+            info.entrypoint = entryPointFunc;
+            info.shader_stage = stage;
+            info.enable_debug = debug;
+            info.include_dir = nullptr;
+            info.defines = nullptr;
+            info.name = nullptr;
+
+            size_t size = 0;
+            void* data = SDL_ShaderCross_CompileSPIRVFromHLSL(&info, &size);
+            TBX_ASSERT(data != nullptr && size != 0, "Failed to compile shader: {}", SDL_GetError());
+
+            SDL_ShaderCross_SPIRV_Info vertexInfo = {};
+            vertexInfo.entrypoint = entryPointFunc;
+            vertexInfo.bytecode = (Uint8*)data;
+            vertexInfo.bytecode_size = size;
+            vertexInfo.shader_stage = stage;
+            vertexInfo.enable_debug = debug;
+
+            SDL_ShaderCross_GraphicsShaderMetadata shaderMetadata = {};
+            shaderMetadata.num_uniform_buffers = 1;
+            shaderMetadata.num_storage_textures = 0;
+            shaderMetadata.num_storage_buffers = 0;
+            shaderMetadata.num_inputs = 0;
+            shaderMetadata.num_outputs = 0;
+            shaderMetadata.inputs = nullptr;
+            shaderMetadata.outputs = nullptr;
+            if (shaderType == Tbx::ShaderType::Vertex)
+            {
+                shaderMetadata.num_samplers = 0;
+            }
+            else if (shaderType == Tbx::ShaderType::Fragment)
+            {
+                shaderMetadata.num_samplers = 1;
+            }
+
+            SDL_GPUShader* compiledShader = SDL_ShaderCross_CompileGraphicsShaderFromSPIRV(device, &vertexInfo, &shaderMetadata, 0);
+            TBX_ASSERT(compiledShader != nullptr && size != 0, "Failed to compile shader: {}", SDL_GetError());
+
+            _cachedShaders.emplace(
+                std::piecewise_construct,
+                std::forward_as_tuple(shader.GetId()),
+                std::forward_as_tuple(compiledShader, device));
+            SDL_free(data);
         }
+    }
+
+    const SDLCachedShader& SDLShaderCache::Get(const Tbx::Uid& shader)
+    {
+        return _cachedShaders.find(shader)->second;
+    }
+
+    void SDLShaderCache::Clear()
+    {
         _cachedShaders.clear();
     }
 
-    const SDLCachedShader& SDLCachedShaderManager::GetVert(const Tbx::Uid& shader)
-    {
-        return _cachedShaders.find(shader)->second;
-    }
-
-    const SDLCachedShader& SDLCachedShaderManager::GetFrag(const Tbx::Uid& shader)
-    {
-        return _cachedShaders.find(shader)->second;
-    }
-
-    void SDLCachedShaderManager::AddVert(SDL_GPUDevice* device, const Tbx::Shader& shader)
-    {
-        if (shader.GetType() != Tbx::ShaderType::Vertex)
-        {
-            TBX_ASSERT(false, "Wrong type of shader given!");
-            return;
-        }
-
-        const auto i = _cachedShaders.find(shader.GetId());
-        if (i == _cachedShaders.end())
-        {
-            SDL_ShaderCross_HLSL_Info info = {};
-            info.source = shader.GetSource().c_str();
-            info.entrypoint = "main";
-            info.include_dir = nullptr;
-            info.defines = nullptr;
-            info.shader_stage = SDL_SHADERCROSS_SHADERSTAGE_VERTEX;
-            info.enable_debug = true;
-            info.name = nullptr;
-
-            size_t size = 0;
-            void* data = SDL_ShaderCross_CompileSPIRVFromHLSL(&info, &size);
-            TBX_ASSERT(data != nullptr && size != 0, "Failed to compile vertex shader: {}", SDL_GetError());
-
-            SDL_ShaderCross_SPIRV_Info vertexInfo = {};
-            vertexInfo.bytecode = (Uint8*)data;
-            vertexInfo.bytecode_size = size;
-            vertexInfo.entrypoint = "main";
-            vertexInfo.shader_stage = SDL_SHADERCROSS_SHADERSTAGE_VERTEX;
-            vertexInfo.enable_debug = true;
-
-            SDL_ShaderCross_GraphicsShaderMetadata vertexMetadata = {};
-            vertexMetadata.num_uniform_buffers = 1;
-            vertexMetadata.num_samplers = 0;
-            vertexMetadata.num_storage_textures = 0;
-            vertexMetadata.num_storage_buffers = 0;
-            vertexMetadata.num_inputs = 0;
-            vertexMetadata.num_outputs = 0;
-            vertexMetadata.inputs = nullptr;
-            vertexMetadata.outputs = nullptr;
-
-            SDLCachedShader cachedShader = {};
-            SDL_GPUShader* vertexShader = SDL_ShaderCross_CompileGraphicsShaderFromSPIRV(device, &vertexInfo, &vertexMetadata, 0);
-            cachedShader.Shader = vertexShader;
-
-            _cachedShaders[shader.GetId()] = cachedShader;
-
-            SDL_free(data);
-        }
-    }
-
-    void SDLCachedShaderManager::AddFrag(SDL_GPUDevice* device, const Tbx::Shader& shader)
-    {
-        if (shader.GetType() != Tbx::ShaderType::Fragment)
-        {
-            TBX_ASSERT(false, "Wrong type of shader given!");
-            return;
-        }
-
-        const auto i = _cachedShaders.find(shader.GetId());
-        if (i == _cachedShaders.end())
-        {
-            SDL_ShaderCross_HLSL_Info info = {};
-            info.source = shader.GetSource().c_str();
-            info.entrypoint = "main";
-            info.include_dir = nullptr;
-            info.defines = nullptr;
-            info.shader_stage = SDL_SHADERCROSS_SHADERSTAGE_FRAGMENT;
-            info.enable_debug = true;
-            info.name = nullptr;
-
-            size_t size = 0;
-            void* data = SDL_ShaderCross_CompileSPIRVFromHLSL(&info, &size);
-            TBX_ASSERT(data != nullptr && size != 0, "Failed to compile vertex shader: {}", SDL_GetError());
-
-            SDL_ShaderCross_SPIRV_Info fragmentInfo = {};
-            fragmentInfo.bytecode = (Uint8*)data;
-            fragmentInfo.bytecode_size = size;
-            fragmentInfo.entrypoint = "main";
-            fragmentInfo.shader_stage = SDL_SHADERCROSS_SHADERSTAGE_FRAGMENT;
-            fragmentInfo.enable_debug = true;
-
-            SDL_ShaderCross_GraphicsShaderMetadata fragmentMetadata = {};
-            fragmentMetadata.num_samplers = 1;
-            fragmentMetadata.num_storage_buffers = 0;
-            fragmentMetadata.num_storage_textures = 0;
-            fragmentMetadata.num_uniform_buffers = 1;
-
-            SDLCachedShader cachedShader = {};
-            SDL_GPUShader* fragmentShader = SDL_ShaderCross_CompileGraphicsShaderFromSPIRV(device, &fragmentInfo, &fragmentMetadata, 0);
-            cachedShader.Shader = fragmentShader;
-
-            _cachedShaders[shader.GetId()] = cachedShader;
-
-            SDL_free(data);
-        }
-    }
-
-    void SDLCreateVertexAttributes(std::vector<SDL_GPUVertexAttribute>& vertexAttributes, const Tbx::BufferLayout& bufferLayout)
+    std::vector<SDL_GPUVertexAttribute> SDLCreateVertexAttributes(const Tbx::BufferLayout& bufferLayout)
     {
         const std::vector<Tbx::BufferElement>& bufferElements = bufferLayout.GetElements();
+        auto vertexAttributes = std::vector<SDL_GPUVertexAttribute>();
 
-        vertexAttributes.clear();
         Uint32 offset = 0;
-
         for (size_t i = 0; i < bufferElements.size(); i++)
         {
             const Tbx::BufferElement& bufferElement = bufferElements[i];
-            Tbx::ShaderDataType type = bufferElement.GetType();
+            Tbx::ShaderUniformType type = bufferElement.GetType();
             Uint32 size = (Uint32)bufferElement.GetSize();
 
             vertexAttributes.resize(vertexAttributes.size() + 1);
@@ -157,30 +130,32 @@ namespace SDLRendering
             vertexAttribute.location = (Uint32)i;
             switch(type)
             {
-                case Tbx::ShaderDataType::Float2:
+                case Tbx::ShaderUniformType::Float2:
                     vertexAttribute.format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
                     break;
-                case Tbx::ShaderDataType::Float3:
+                case Tbx::ShaderUniformType::Float3:
                     vertexAttribute.format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
                     break;
-                case Tbx::ShaderDataType::Float4:
+                case Tbx::ShaderUniformType::Float4:
                     vertexAttribute.format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
                     break;
                 default:
-                    SDL_assert(0);
+                    TBX_ASSERT(false, "Unsupported shader uniform data type!");
                     break;
             }
             vertexAttribute.offset = offset;
 
             offset += size;
         }
+
+        return vertexAttributes;
     }
 
-    void SDLCreateVertexBufferDescriptions(std::vector<SDL_GPUVertexBufferDescription>& vertexBufferDesctiptions, const Tbx::BufferLayout& bufferLayout)
+    std::vector<SDL_GPUVertexBufferDescription> SDLCreateVertexBufferDescriptions(const Tbx::BufferLayout& bufferLayout)
     {
         Uint32 stride = bufferLayout.GetStride();
 
-        vertexBufferDesctiptions.clear();
+        auto vertexBufferDesctiptions = std::vector<SDL_GPUVertexBufferDescription>();
         vertexBufferDesctiptions.resize(vertexBufferDesctiptions.size() + 1);
 
         SDL_GPUVertexBufferDescription& vertexBufferDesctiption = vertexBufferDesctiptions.back();
@@ -188,15 +163,17 @@ namespace SDLRendering
         vertexBufferDesctiption.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
         vertexBufferDesctiption.instance_step_rate = 0;
         vertexBufferDesctiption.pitch = stride;
+
+        return vertexBufferDesctiptions;
     }
 
-    SDL_GPUBuffer* SDLCreateBuffer(SDL_GPUDevice* device, const SDL_GPUBufferCreateInfo& bufferCreateInfo)
+    SDL_GPUBuffer* SDLCreateBuffer(const SDL_GPUBufferCreateInfo& bufferCreateInfo, SDL_GPUDevice* device)
     {
         SDL_GPUBuffer* buffer = SDL_CreateGPUBuffer(device, &bufferCreateInfo);
         return buffer;
     }
 
-    void SDLUploadBuffer(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, SDL_GPUBuffer* buffer, Uint32 sourceSize, const void* sourceData)
+    void SDLUploadBuffer(SDL_GPUBuffer* buffer, Uint32 sourceSize, const void* sourceData, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer)
     {
         SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo = {};
         transferBufferCreateInfo.size = sourceSize;

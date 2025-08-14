@@ -60,18 +60,20 @@ namespace SDLRendering
         SDL_GPURenderPass* _currRenderPass = nullptr;
         SDL_GPUTexture* _currSwapchainTexture = nullptr;
 
+        SDL_GPUColorTargetInfo _currColorTarget;
+
+        SDLTextureCache _textureCache;
+        SDLShaderCache _shaderCache;
+
+        Tbx::Material _currentMaterial;
+        std::vector<Tbx::ShaderData> _shaderUniforms;
+
         Tbx::Size _resolution = { 0,0 };
         Tbx::Viewport _viewport = { { 0,0 }, { 0,0 } };
 
         Tbx::GraphicsApi _api = Tbx::GraphicsApi::None;
 
         bool _vsyncEnabled = false;
-
-        Tbx::Material _currentMaterial;
-        std::vector<Tbx::ShaderData> _shaderDatas;
-        SDLCachedTextureManager _cachedTextureManager;
-        SDLCachedShaderManager _cachedShaderManager;
-        SDL_GPUColorTargetInfo _currColorTarget;
     };
 }
 

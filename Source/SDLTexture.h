@@ -9,20 +9,24 @@ namespace SDLRendering
 {
     struct SDLCachedTexture
     {
-        SDL_GPUTexture* Texture;
-        SDL_GPUSampler* Sampler;
+        SDLCachedTexture() = default;
+        SDLCachedTexture(SDL_GPUTexture* texture, SDL_GPUSampler* sampler, SDL_GPUDevice* device);
+        ~SDLCachedTexture();
 
-        SDLCachedTexture();
-        void Release(SDL_GPUDevice* device);
+        SDL_GPUTexture* Texture = nullptr;
+        SDL_GPUSampler* Sampler = nullptr;
+        SDL_GPUDevice* Device = nullptr;
     };
 
-    struct SDLCachedTextureManager
+    struct SDLTextureCache
     {
     public:
-        void Release(SDL_GPUDevice* device);
+        ~SDLTextureCache();
 
-        void Add(SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer, const Tbx::Texture& texture);
+        void Add(const Tbx::Texture& texture, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer);
         const SDLCachedTexture& Get(const Tbx::Uid& texture);
+
+        void Clear();
 
     private:
         std::unordered_map<Tbx::Uid, SDLCachedTexture> _cachedTextures;
@@ -32,7 +36,7 @@ namespace SDLRendering
 
     SDL_GPUSampler* SDLMakeSampler(const Tbx::Texture& texture, SDL_GPUDevice* device);
 
-    SDL_GPUTexture* SDLCreateTexture(const SDL_Surface* surface, SDL_GPUDevice* device);
+    SDL_GPUTexture* SDLCreateTexture(const SDL_Surface* surface, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer);
 
     void SDLUploadTexture(SDL_GPUTexture* texture, Uint32 textureSize, const void* textureData, Uint32 textureWidth, Uint32 textureHeight, SDL_GPUDevice* device, SDL_GPUCommandBuffer* commandBuffer);
 }
